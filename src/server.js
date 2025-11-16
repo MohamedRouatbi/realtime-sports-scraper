@@ -1,4 +1,4 @@
-# Fly.io Health Check Endpoint
+// Health Check Endpoint for Render/Fly.io
 import http from 'http';
 
 const PORT = process.env.PORT || 8080;
