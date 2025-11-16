@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  sports-scraper:
+    build: .
+    container_name: realtime-sports-scraper
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - BWIN_WS_URL=${BWIN_WS_URL}
+      - SOFASCORE_WS_URL=${SOFASCORE_WS_URL}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - RECONNECT_DELAY=${RECONNECT_DELAY:-3000}
+      - MAX_RECONNECT_ATTEMPTS=${MAX_RECONNECT_ATTEMPTS:-10}
+      - HEARTBEAT_INTERVAL=${HEARTBEAT_INTERVAL:-30000}
+      - ENABLE_GOALS=${ENABLE_GOALS:-true}
+      - ENABLE_RED_CARDS=${ENABLE_RED_CARDS:-true}
+      - ENABLE_YELLOW_CARDS=${ENABLE_YELLOW_CARDS:-true}
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - sports-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  sports-network:
+    driver: bridge

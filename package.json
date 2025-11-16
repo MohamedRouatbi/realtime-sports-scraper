@@ -1,0 +1,40 @@
+{
+  "name": "realtime-sports-scraper",
+  "version": "1.0.0",
+  "description": "High-performance, low-latency real-time sports data pipeline with WebSocket integration and Telegram alerts",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node examples/test-setup.js",
+    "test:setup": "node examples/test-setup.js",
+    "lint": "eslint src/",
+    "format": "prettier --write src/"
+  },
+  "keywords": [
+    "sports",
+    "websocket",
+    "telegram",
+    "real-time",
+    "scraper",
+    "bookmaker",
+    "live-data"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.16.0",
+    "node-telegram-bot-api": "^0.64.0",
+    "dotenv": "^16.4.5",
+    "pino": "^8.19.0",
+    "pino-pretty": "^10.3.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

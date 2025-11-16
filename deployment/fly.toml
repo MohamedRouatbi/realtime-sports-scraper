@@ -1,0 +1,28 @@
+# Fly.io deployment configuration
+app = "realtime-sports-scraper"
+primary_region = "fra" # Frankfurt for EU, use "iad" for US East
+
+[build]
+  builder = "heroku/buildpacks:20"
+
+[env]
+  NODE_ENV = "production"
+  LOG_LEVEL = "info"
+
+[deploy]
+  release_command = "echo 'Deployment starting...'"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[processes]
+  app = "node src/index.js"
