@@ -655,7 +655,7 @@ export class SofaScoreCollector extends EventEmitter {
                 }
 
                 liveMatches.push({
-                  matchId: event.id.toString(),
+                  matchId: Number(event.id),
                   homeTeam: event.homeTeam?.name || 'Unknown',
                   awayTeam: event.awayTeam?.name || 'Unknown',
                   homeTeamShort: event.homeTeam?.shortName || event.homeTeam?.name || 'Unknown',
