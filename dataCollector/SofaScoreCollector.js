@@ -635,15 +635,41 @@ export class SofaScoreCollector extends EventEmitter {
           if (data.events && Array.isArray(data.events)) {
             for (const event of data.events) {
               if (event.status?.type === 'inprogress') {
+                // Extract current match time/minute
+                let currentMinute = null;
+                if (event.time?.currentPeriodStartTimestamp) {
+                  const elapsed = Math.floor(Date.now() / 1000 - event.time.currentPeriodStartTimestamp);
+                  const minutes = Math.floor(elapsed / 60);
+                  // Add 45 if in 2nd half (status.code 7 = 2nd half)
+                  if (event.status?.code === 7) {
+                    currentMinute = Math.min(45 + minutes, 90);
+                  } else {
+                    currentMinute = Math.min(minutes, 45);
+                  }
+                } else if (event.status?.description) {
+                  // Try to parse minute from status description (e.g., "45'", "72'")
+                  const minuteMatch = event.status.description.match(/(\d+)/);
+                  if (minuteMatch) {
+                    currentMinute = parseInt(minuteMatch[1], 10);
+                  }
+                }
+
                 liveMatches.push({
                   matchId: event.id.toString(),
                   homeTeam: event.homeTeam?.name || 'Unknown',
                   awayTeam: event.awayTeam?.name || 'Unknown',
                   homeTeamShort: event.homeTeam?.shortName || event.homeTeam?.name || 'Unknown',
                   awayTeamShort: event.awayTeam?.shortName || event.awayTeam?.name || 'Unknown',
+                  homeTeamId: event.homeTeam?.id,
+                  awayTeamId: event.awayTeam?.id,
                   tournament: event.tournament?.name || '',
+                  tournamentId: event.tournament?.id,
                   homeScore: event.homeScore?.current || 0,
                   awayScore: event.awayScore?.current || 0,
+                  currentMinute: currentMinute,
+                  statusCode: event.status?.code,
+                  statusDescription: event.status?.description,
+                  startTimestamp: event.startTimestamp,
                 });
               }
             }
@@ -656,7 +682,7 @@ export class SofaScoreCollector extends EventEmitter {
         }
       }, todayDate);
 
-      // Store the extracted live matches
+      // Store the extracted live matches and fetch additional details (lineups, etc.)
       for (const match of matches) {
         if (!this.matchInfo.has(match.matchId)) {
           this.matchInfo.set(match.matchId, {
@@ -665,19 +691,99 @@ export class SofaScoreCollector extends EventEmitter {
             tournament: match.tournament,
             homeTeamShort: match.homeTeamShort,
             awayTeamShort: match.awayTeamShort,
+            homeTeamId: match.homeTeamId,
+            awayTeamId: match.awayTeamId,
+            tournamentId: match.tournamentId,
+            currentMinute: match.currentMinute,
+            statusCode: match.statusCode,
           });
+          
           logger.info({ 
             matchId: match.matchId, 
             teams: `${match.homeTeam} vs ${match.awayTeam}`,
             score: `${match.homeScore}-${match.awayScore}`,
+            minute: match.currentMinute ? `${match.currentMinute}'` : 'N/A',
             tournament: match.tournament
           }, '✅ Live match found');
+
+          // Fetch lineups for this match
+          await this.fetchMatchLineups(match.matchId);
         }
       }
 
       logger.info({ count: matches.length }, `📊 Found ${matches.length} LIVE matches`);
     } catch (error) {
       logger.error({ error: error.message }, 'Failed to extract live matches from API');
+    }
+  }
+
+  async fetchMatchLineups(matchId) {
+    try {
+      const lineups = await this.page.evaluate(async (id) => {
+        try {
+          const response = await fetch(`https://api.sofascore.com/api/v1/event/${id}/lineups`, {
+            headers: {
+              'Accept': 'application/json',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Origin': 'https://www.sofascore.com',
+              'Referer': 'https://www.sofascore.com/',
+            }
+          });
+
+          if (!response.ok) {
+            console.log(`Lineups API failed: ${response.status}`);
+            return null;
+          }
+
+          return response.json();
+        } catch (error) {
+          console.error('Lineups fetch error:', error.message);
+          return null;
+        }
+      }, matchId);
+
+      if (lineups && lineups.home && lineups.away) {
+        const matchData = this.matchInfo.get(matchId);
+        if (matchData) {
+          // Store starting lineups
+          matchData.homeLineup = {
+            formation: lineups.home.formation,
+            players: (lineups.home.players || []).map(p => ({
+              id: p.player?.id,
+              name: p.player?.name,
+              shirtNumber: p.shirtNumber,
+              position: p.position,
+              substitute: p.substitute || false,
+            }))
+          };
+
+          matchData.awayLineup = {
+            formation: lineups.away.formation,
+            players: (lineups.away.players || []).map(p => ({
+              id: p.player?.id,
+              name: p.player?.name,
+              shirtNumber: p.shirtNumber,
+              position: p.position,
+              substitute: p.substitute || false,
+            }))
+          };
+
+          this.matchInfo.set(matchId, matchData);
+          
+          const homeStarters = matchData.homeLineup.players.filter(p => !p.substitute).length;
+          const awayStarters = matchData.awayLineup.players.filter(p => !p.substitute).length;
+          
+          logger.info({ 
+            matchId, 
+            homeFormation: matchData.homeLineup.formation,
+            awayFormation: matchData.awayLineup.formation,
+            homePlayers: homeStarters,
+            awayPlayers: awayStarters
+          }, '⚽ Lineups fetched');
+        }
+      }
+    } catch (error) {
+      logger.debug({ error: error.message, matchId }, 'Could not fetch lineups');
     }
   }
 
