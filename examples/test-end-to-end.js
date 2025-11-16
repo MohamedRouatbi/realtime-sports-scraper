@@ -28,10 +28,12 @@ console.log('');
 // Initialize components
 const collector = new SofaScoreCollector();
 const processor = new EventProcessor();
-const notifier = new TelegramNotifier({
-  botToken: process.env.TELEGRAM_BOT_TOKEN,
+const notifier = new TelegramNotifier(process.env.TELEGRAM_BOT_TOKEN, {
   chatId: process.env.TELEGRAM_CHAT_ID,
 });
+
+// Initialize Telegram bot
+await notifier.initialize();
 
 let eventCount = 0;
 
@@ -39,13 +41,8 @@ let eventCount = 0;
 processor.on('alert', async alert => {
   try {
     console.log(`\n📤 Sending to Telegram:\n${alert.message}\n`);
-    const result = await notifier.send(alert.message);
-
-    if (result.success) {
-      console.log(`✅ Telegram notification sent successfully!`);
-    } else {
-      console.error(`❌ Failed to send Telegram notification: ${result.error}`);
-    }
+    const result = await notifier.sendAlert(alert);
+    console.log(`✅ Telegram notification sent successfully! Message ID: ${result.message_id}`);
   } catch (error) {
     console.error('❌ Error sending notification:', error.message);
   }
