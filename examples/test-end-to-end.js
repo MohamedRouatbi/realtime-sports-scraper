@@ -40,11 +40,14 @@ let eventCount = 0;
 // Wire up EventProcessor alerts to Telegram
 processor.on('alert', async alert => {
   try {
-    console.log(`\n📤 Sending to Telegram:\n${alert.message}\n`);
+    console.log(`\n📤 Sending to Telegram (Chat ID: ${process.env.TELEGRAM_CHAT_ID}):\n${alert.message}\n`);
     const result = await notifier.sendAlert(alert);
-    console.log(`✅ Telegram notification sent successfully! Message ID: ${result.message_id}`);
+    console.log(`✅ Telegram notification sent successfully!`);
+    console.log(`   Chat ID: ${result.chat.id}`);
+    console.log(`   Message ID: ${result.message_id}`);
   } catch (error) {
     console.error('❌ Error sending notification:', error.message);
+    console.error('   Stack:', error.stack);
   }
   console.log('─'.repeat(80));
 });
