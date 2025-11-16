@@ -86,17 +86,9 @@ export class SofaScoreCollector extends EventEmitter {
         timeout: 30000,
       });
 
-      // In production mode, automatically click on the first live match
-      if (isProduction) {
-        logger.info('🎯 Auto-selecting first live match in production mode...');
-        await this.autoSelectLiveMatch();
-      }
-
       this.isRunning = true;
       logger.info('✅ SofaScore collector started!');
-      if (!isProduction) {
-        logger.info('💡 Click on any LIVE match in the browser to start receiving events');
-      }
+      logger.info('📡 Monitoring ALL live matches via WebSocket');
 
       this.emit('started');
     } catch (error) {
@@ -591,37 +583,84 @@ export class SofaScoreCollector extends EventEmitter {
       // Wait for live matches to load
       await this.page.waitForTimeout(3000);
 
-      // Find and click on the first live match link
-      const matchUrl = await this.page.evaluate(() => {
-        // Look for live match links (they contain /match/ in the URL)
-        const links = Array.from(document.querySelectorAll('a[href*="/match/"]'));
-        
-        // Filter for links that look like match detail pages
-        const matchLinks = links.filter(link => {
+      // Find and click on the first LIVE match link
+      const matchInfo = await this.page.evaluate(() => {
+        // Look for live match indicators - SofaScore shows live matches with specific classes/attributes
+        // Try multiple selectors for live matches
+        const selectors = [
+          '[class*="inprogress"]', // Common class for live matches
+          '[class*="live"]',
+          '[data-testid*="event_inprogress"]',
+          '[class*="event"][class*="live"]',
+        ];
+
+        // Find elements that indicate a match is in progress
+        let liveContainer = null;
+        for (const selector of selectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            liveContainer = elements[0];
+            break;
+          }
+        }
+
+        // If we found a live container, find the match link within it or near it
+        if (liveContainer) {
+          // Try to find a link within the container or its parent
+          let matchLink = liveContainer.closest('a') || liveContainer.querySelector('a[href*="/match/"]');
+          
+          if (!matchLink) {
+            // Try parent elements
+            let parent = liveContainer.parentElement;
+            for (let i = 0; i < 3 && parent; i++) {
+              matchLink = parent.querySelector('a[href*="/match/"]');
+              if (matchLink) break;
+              parent = parent.parentElement;
+            }
+          }
+
+          if (matchLink) {
+            const href = matchLink.getAttribute('href');
+            const fullUrl = href.startsWith('http') ? href : `https://www.sofascore.com${href}`;
+            
+            // Try to extract match name from the link text or nearby elements
+            const matchName = matchLink.textContent?.trim() || 'Unknown Match';
+            
+            return { url: fullUrl, name: matchName };
+          }
+        }
+
+        // Fallback: Just get any match link from the livescore page
+        const allMatchLinks = Array.from(document.querySelectorAll('a[href*="/match/"]'));
+        const validLinks = allMatchLinks.filter(link => {
           const href = link.getAttribute('href');
           return href && href.includes('/match/') && !href.includes('/standings') && !href.includes('/h2h');
         });
 
-        if (matchLinks.length > 0) {
-          const href = matchLinks[0].getAttribute('href');
-          // Return full URL
-          return href.startsWith('http') ? href : `https://www.sofascore.com${href}`;
+        if (validLinks.length > 0) {
+          const href = validLinks[0].getAttribute('href');
+          return {
+            url: href.startsWith('http') ? href : `https://www.sofascore.com${href}`,
+            name: 'Match from livescore page'
+          };
         }
         return null;
       });
 
-      if (matchUrl) {
-        logger.info({ matchUrl }, '✅ Found live match, navigating...');
-        await this.page.goto(matchUrl, {
+      if (matchInfo && matchInfo.url) {
+        logger.info({ matchUrl: matchInfo.url, matchName: matchInfo.name }, '✅ Found live match, navigating...');
+        await this.page.goto(matchInfo.url, {
           waitUntil: 'domcontentloaded',
           timeout: 15000,
         });
         logger.info('✅ Successfully navigated to live match');
       } else {
         logger.warn('⚠️ No live matches found, staying on livescore page');
+        logger.info('💡 Will still receive events from WebSocket for all live matches');
       }
     } catch (error) {
       logger.error({ error: error.message }, 'Failed to auto-select live match');
+      logger.info('💡 Continuing with livescore page - will receive events from WebSocket');
       // Don't throw - just continue with livescore page
     }
   }

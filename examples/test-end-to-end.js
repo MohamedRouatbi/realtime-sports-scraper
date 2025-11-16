@@ -85,13 +85,9 @@ collector.on('started', () => {
   console.log('✅ TelegramNotifier ready');
   console.log('');
   console.log('═'.repeat(80));
-  console.log('💡 INSTRUCTIONS:');
-  console.log('   1. A browser window should have opened with SofaScore');
-  console.log('   2. Click on any LIVE match (look for matches in progress)');
-  console.log('   3. Wait for goals or cards to happen in the match');
-  console.log('   4. Watch this console for real-time event detection');
-  console.log('   5. Check your Telegram for instant notifications');
-  console.log('   6. Press Ctrl+C to stop');
+  console.log('📡 Monitoring ALL live football matches');
+  console.log('⚽ Will detect goals, red cards, and yellow cards');
+  console.log('📲 Notifications will be sent to Telegram instantly');
   console.log('═'.repeat(80));
   console.log('');
   console.log('⏳ Waiting for match events...\n');
