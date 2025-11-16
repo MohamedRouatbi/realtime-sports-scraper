@@ -38,7 +38,7 @@ export class SofaScoreCollector extends EventEmitter {
 
       // Use headless mode in production (Fly.io), visible browser locally
       const isProduction = process.env.NODE_ENV === 'production';
-      
+
       this.browser = await puppeteer.launch({
         headless: isProduction ? 'new' : false,
         defaultViewport: isProduction ? { width: 1920, height: 1080 } : null,
@@ -51,7 +51,7 @@ export class SofaScoreCollector extends EventEmitter {
           '--disable-extensions',
           '--no-first-run',
           '--no-zygote',
-          ...(isProduction ? [] : ['--start-maximized'])
+          ...(isProduction ? [] : ['--start-maximized']),
         ],
         protocolTimeout: 180000, // 3 minutes timeout
       });
@@ -142,7 +142,7 @@ export class SofaScoreCollector extends EventEmitter {
       source: 'sofascore',
       homeTeam: matchDetails.homeTeam,
       awayTeam: matchDetails.awayTeam,
-      tournament: matchDetails.tournament
+      tournament: matchDetails.tournament,
     };
 
     // Detect goal from score change
@@ -190,7 +190,7 @@ export class SofaScoreCollector extends EventEmitter {
     // Detect cards
     if (data.cardsCode) {
       const cardsCode = data.cardsCode.toString();
-      
+
       // SofaScore cardsCode format: "XY" where X=home cards, Y=away cards
       // 0=no card, 1=yellow, 2=red
       if (cardsCode.includes('1')) {
@@ -198,23 +198,23 @@ export class SofaScoreCollector extends EventEmitter {
         event.team = cardsCode[0] === '1' ? 'home' : 'away';
         event.teamName = event.team === 'home' ? matchDetails.homeTeam : matchDetails.awayTeam;
         event.minute = this.extractMinute(data);
-        
+
         // Fetch card details for player name
         await this.enrichCardWithPlayer(event, matchId);
-        
+
         logger.info({ event }, '🟨 YELLOW CARD DETECTED!');
         this.emit('event', event);
       }
-      
+
       if (cardsCode.includes('2')) {
         event.type = 'red_card';
         event.team = cardsCode[0] === '2' ? 'home' : 'away';
         event.teamName = event.team === 'home' ? matchDetails.homeTeam : matchDetails.awayTeam;
         event.minute = this.extractMinute(data);
-        
+
         // Fetch card details for player name
         await this.enrichCardWithPlayer(event, matchId);
-        
+
         logger.info({ event }, '🟥 RED CARD DETECTED!');
         this.emit('event', event);
       }
@@ -257,9 +257,9 @@ export class SofaScoreCollector extends EventEmitter {
   async fetchMatchDetails(matchId) {
     try {
       logger.debug({ matchId }, 'Fetching match details from browser context');
-      
+
       // Use Puppeteer's page.evaluate to make the fetch from browser context (has cookies)
-      const matchData = await this.page.evaluate(async (id) => {
+      const matchData = await this.page.evaluate(async id => {
         const response = await fetch(`https://api.sofascore.com/api/v1/event/${id}`);
         if (!response.ok) return null;
         return response.json();
@@ -273,7 +273,7 @@ export class SofaScoreCollector extends EventEmitter {
           awayTeam: 'Unknown',
           tournament: '',
           homeTeamShort: 'Unknown',
-          awayTeamShort: 'Unknown'
+          awayTeamShort: 'Unknown',
         });
         return;
       }
@@ -285,12 +285,14 @@ export class SofaScoreCollector extends EventEmitter {
         awayTeam: event.awayTeam?.name || 'Unknown',
         tournament: event.tournament?.name || event.tournament?.uniqueTournament?.name || '',
         homeTeamShort: event.homeTeam?.shortName || event.homeTeam?.name,
-        awayTeamShort: event.awayTeam?.shortName || event.awayTeam?.name
+        awayTeamShort: event.awayTeam?.shortName || event.awayTeam?.name,
       };
 
       this.matchInfo.set(matchId, matchDetails);
-      logger.info({ matchId, teams: `${matchDetails.homeTeam} vs ${matchDetails.awayTeam}` }, '✅ Match details fetched');
-
+      logger.info(
+        { matchId, teams: `${matchDetails.homeTeam} vs ${matchDetails.awayTeam}` },
+        '✅ Match details fetched'
+      );
     } catch (error) {
       logger.error({ error: error.message, matchId }, 'Error fetching match details');
       // Set fallback
@@ -299,7 +301,7 @@ export class SofaScoreCollector extends EventEmitter {
         awayTeam: 'Unknown',
         tournament: '',
         homeTeamShort: 'Unknown',
-        awayTeamShort: 'Unknown'
+        awayTeamShort: 'Unknown',
       });
     }
   }
@@ -315,53 +317,59 @@ export class SofaScoreCollector extends EventEmitter {
       // Wait briefly for incident to appear on page
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const playerInfo = await this.page.evaluate(() => {
-        // eslint-disable-next-line no-undef
-        const doc = document;
-        
-        // Try to find the most recent goal incident
-        const incidentSelectors = [
-          '[class*="incident"]',
-          '[class*="Incident"]', 
-          '.event-incident',
-          '[data-testid*="incident"]',
-          '[class*="timeline"]',
-          '.match-event'
-        ];
-        
-        for (const selector of incidentSelectors) {
-          const incidents = doc.querySelectorAll(selector);
-          
-          // Search from most recent (end) to oldest
-          for (let i = incidents.length - 1; i >= 0; i--) {
-            const incident = incidents[i];
-            const text = incident.textContent || '';
-            const html = incident.innerHTML || '';
-            
-            // Look for goal indicators
-            if (text.includes('⚽') || html.includes('goal') || text.toLowerCase().includes('goal')) {
-              // Try to extract player name - look for capitalized names
-              const playerMatches = text.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/g);
-              
-              if (playerMatches && playerMatches.length > 0) {
-                // Filter out common non-player words
-                const filtered = playerMatches.filter(name => 
-                  !['Goal', 'Yellow', 'Red', 'Card', 'Min', 'Home', 'Away'].includes(name)
-                );
-                
-                if (filtered.length > 0) {
-                  return { player: filtered[0].trim() };
+      const playerInfo = await this.page
+        .evaluate(() => {
+          // eslint-disable-next-line no-undef
+          const doc = document;
+
+          // Try to find the most recent goal incident
+          const incidentSelectors = [
+            '[class*="incident"]',
+            '[class*="Incident"]',
+            '.event-incident',
+            '[data-testid*="incident"]',
+            '[class*="timeline"]',
+            '.match-event',
+          ];
+
+          for (const selector of incidentSelectors) {
+            const incidents = doc.querySelectorAll(selector);
+
+            // Search from most recent (end) to oldest
+            for (let i = incidents.length - 1; i >= 0; i--) {
+              const incident = incidents[i];
+              const text = incident.textContent || '';
+              const html = incident.innerHTML || '';
+
+              // Look for goal indicators
+              if (
+                text.includes('⚽') ||
+                html.includes('goal') ||
+                text.toLowerCase().includes('goal')
+              ) {
+                // Try to extract player name - look for capitalized names
+                const playerMatches = text.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/g);
+
+                if (playerMatches && playerMatches.length > 0) {
+                  // Filter out common non-player words
+                  const filtered = playerMatches.filter(
+                    name => !['Goal', 'Yellow', 'Red', 'Card', 'Min', 'Home', 'Away'].includes(name)
+                  );
+
+                  if (filtered.length > 0) {
+                    return { player: filtered[0].trim() };
+                  }
                 }
               }
             }
           }
-        }
-        
-        return null;
-      }).catch((err) => {
-        logger.debug({ error: err.message }, 'Error evaluating page for player');
-        return null;
-      });
+
+          return null;
+        })
+        .catch(err => {
+          logger.debug({ error: err.message }, 'Error evaluating page for player');
+          return null;
+        });
 
       if (playerInfo?.player) {
         event.player = playerInfo.player;
@@ -370,7 +378,6 @@ export class SofaScoreCollector extends EventEmitter {
         event.player = 'Unknown';
         logger.debug('Could not extract player name from page');
       }
-
     } catch (error) {
       logger.debug({ error: error.message }, 'Error enriching goal with player');
       event.player = 'Unknown';
@@ -380,7 +387,7 @@ export class SofaScoreCollector extends EventEmitter {
   async enrichGoalWithPlayerAPI(event, matchId) {
     try {
       // Use browser context to fetch incidents (has cookies)
-      const incidentsData = await this.page.evaluate(async (id) => {
+      const incidentsData = await this.page.evaluate(async id => {
         const response = await fetch(`https://api.sofascore.com/api/v1/event/${id}/incidents`);
         if (!response.ok) return null;
         return response.json();
@@ -409,14 +416,13 @@ export class SofaScoreCollector extends EventEmitter {
         event.assistBy = goal.assist1?.name;
         event.minute = goal.time || event.minute;
         event.addedTime = goal.addedTime;
-        
+
         logger.info({ player: event.player, minute: event.minute }, '✅ Goal details from API');
       } else {
         event.player = 'Unknown';
         logger.debug('No recent goal found in API, trying page scraping');
         await this.enrichGoalWithPlayer(event);
       }
-
     } catch (error) {
       logger.debug({ error: error.message }, 'API error, falling back to page scraping');
       await this.enrichGoalWithPlayer(event);
@@ -426,7 +432,7 @@ export class SofaScoreCollector extends EventEmitter {
   async enrichCardWithPlayer(event, matchId) {
     try {
       // Use browser context to fetch incidents
-      const incidentsData = await this.page.evaluate(async (id) => {
+      const incidentsData = await this.page.evaluate(async id => {
         const response = await fetch(`https://api.sofascore.com/api/v1/event/${id}/incidents`);
         if (!response.ok) return null;
         return response.json();
@@ -455,13 +461,12 @@ export class SofaScoreCollector extends EventEmitter {
         event.player = card.player?.name || 'Unknown';
         event.minute = card.time || event.minute;
         event.addedTime = card.addedTime;
-        
+
         logger.info({ player: event.player, minute: event.minute }, '✅ Card details from API');
       } else {
         event.player = 'Unknown';
         logger.debug('No recent card found in incidents');
       }
-
     } catch (error) {
       logger.debug({ error: error.message }, 'Error enriching card');
       event.player = 'Unknown';

@@ -3,6 +3,7 @@
 ## Prerequisites
 
 1. **Install Fly.io CLI**:
+
    ```bash
    # Windows (PowerShell)
    iwr https://fly.io/install.ps1 -useb | iex
@@ -69,6 +70,7 @@ fly scale count 2
 After deployment, you should see:
 
 1. **Logs showing**:
+
    ```
    🚀 Starting SofaScore collector...
    🌐 Navigating to SofaScore...
@@ -81,34 +83,42 @@ After deployment, you should see:
 ## 💰 Cost Estimation (Free Tier)
 
 Fly.io free tier includes:
+
 - **3 shared-cpu-1x VMs** (256MB RAM each)
 - **160GB bandwidth/month**
 - **7 days trial** then $5/month for Hobby plan
 
 **Your app uses:**
+
 - 1 VM with 512MB RAM = ~$2.50/month
 - Bandwidth: Minimal (WebSocket + API calls)
 
 ## 🔧 Troubleshooting
 
 ### Issue: Chrome crashes with "Out of memory"
+
 ```bash
 fly scale memory 1024
 ```
 
 ### Issue: Can't connect to WebSocket
+
 Check logs:
+
 ```bash
 fly logs
 ```
 
 ### Issue: Telegram not sending
+
 Verify secrets are set:
+
 ```bash
 fly secrets list
 ```
 
 ### Issue: App keeps restarting
+
 ```bash
 # Check health
 fly status

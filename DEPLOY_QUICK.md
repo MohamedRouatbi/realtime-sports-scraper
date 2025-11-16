@@ -70,6 +70,7 @@ fly apps destroy realtime-sports-scraper
 ## ✅ Ready to Deploy!
 
 Just run:
+
 ```bash
 fly secrets set TELEGRAM_BOT_TOKEN="8461799920:AAGjm0qs0imiivf1Lnbyj4B39uxAWXd2YT0"
 fly secrets set TELEGRAM_CHAT_ID="1990594477"

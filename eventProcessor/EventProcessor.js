@@ -147,7 +147,7 @@ export class EventProcessor extends EventEmitter {
       match: `${homeTeam} vs ${awayTeam}`,
       score: score,
       minute,
-      player: player || goalData.player
+      player: player || goalData.player,
     });
 
     return alert;
@@ -225,18 +225,28 @@ export class EventProcessor extends EventEmitter {
    * Format goal message
    */
   formatGoalMessage(event) {
-    const { goalData = {}, homeTeam, awayTeam, score, minute, player, assistBy, teamName, tournament } = event;
+    const {
+      goalData = {},
+      homeTeam,
+      awayTeam,
+      score,
+      minute,
+      player,
+      assistBy,
+      teamName,
+      tournament,
+    } = event;
 
     let message = `⚽ <b>GOAL!</b>\n\n`;
-    
+
     if (homeTeam && awayTeam) {
       message += `🏟️ ${homeTeam} vs ${awayTeam}\n`;
     }
-    
+
     if (score) {
       message += `📊 Score: <b>${score}</b>\n`;
     }
-    
+
     if (minute) {
       message += `⏱️ ${minute}'`;
       if (event.addedTime) {
@@ -279,11 +289,11 @@ export class EventProcessor extends EventEmitter {
     const { cardData = {}, homeTeam, awayTeam, minute, player, teamName, tournament } = event;
 
     let message = `🟥 <b>RED CARD!</b>\n\n`;
-    
+
     if (homeTeam && awayTeam) {
       message += `🏟️ ${homeTeam} vs ${awayTeam}\n`;
     }
-    
+
     if (minute) {
       message += `⏱️ ${minute}'`;
       if (event.addedTime) {
@@ -318,11 +328,11 @@ export class EventProcessor extends EventEmitter {
     const { cardData = {}, homeTeam, awayTeam, minute, player, teamName, tournament } = event;
 
     let message = `🟨 <b>YELLOW CARD!</b>\n\n`;
-    
+
     if (homeTeam && awayTeam) {
       message += `🏟️ ${homeTeam} vs ${awayTeam}\n`;
     }
-    
+
     if (minute) {
       message += `⏱️ ${minute}'`;
       if (event.addedTime) {

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: realtime-sports-scraper
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: frankfurt  # closest to Europe
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false  # Set this in Render dashboard
+      - key: TELEGRAM_CHAT_ID
+        sync: false  # Set this in Render dashboard
+    healthCheckPath: /health
