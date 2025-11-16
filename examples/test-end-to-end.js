@@ -35,6 +35,23 @@ const notifier = new TelegramNotifier({
 
 let eventCount = 0;
 
+// Wire up EventProcessor alerts to Telegram
+processor.on('alert', async alert => {
+  try {
+    console.log(`\n📤 Sending to Telegram:\n${alert.message}\n`);
+    const result = await notifier.send(alert.message);
+
+    if (result.success) {
+      console.log(`✅ Telegram notification sent successfully!`);
+    } else {
+      console.error(`❌ Failed to send Telegram notification: ${result.error}`);
+    }
+  } catch (error) {
+    console.error('❌ Error sending notification:', error.message);
+  }
+  console.log('─'.repeat(80));
+});
+
 // Wire up the pipeline
 collector.on('event', async rawEvent => {
   eventCount++;
@@ -43,8 +60,8 @@ collector.on('event', async rawEvent => {
   console.log(JSON.stringify(rawEvent, null, 2));
 
   try {
-    // Process through EventProcessor
-    const processedEvents = await processor.process({
+    // Process through EventProcessor (it will emit 'alert' if valid)
+    await processor.process({
       eventType: rawEvent.type, // EventProcessor expects 'eventType' not 'type'
       matchId: rawEvent.matchId,
       team: rawEvent.team,
@@ -60,29 +77,9 @@ collector.on('event', async rawEvent => {
       timestamp: rawEvent.timestamp,
       source: rawEvent.source,
     });
-
-    if (processedEvents && processedEvents.length > 0) {
-      console.log(`✅ Event validated and processed (${processedEvents.length} notifications)`);
-
-      // Send to Telegram
-      for (const message of processedEvents) {
-        console.log(`📤 Sending to Telegram:\n${message}\n`);
-        const result = await notifier.send(message);
-
-        if (result.success) {
-          console.log(`✅ Telegram notification sent successfully!`);
-        } else {
-          console.error(`❌ Failed to send Telegram notification: ${result.error}`);
-        }
-      }
-    } else {
-      console.log('⏭️  Event filtered (duplicate or disabled event type)');
-    }
   } catch (error) {
     console.error('❌ Error processing event:', error.message);
   }
-
-  console.log('─'.repeat(80));
 });
 
 collector.on('started', () => {
