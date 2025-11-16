@@ -82,9 +82,13 @@ export class SofaScoreCollector extends EventEmitter {
       // Navigate to live matches page
       logger.info('🌐 Navigating to SofaScore...');
       await this.page.goto('https://www.sofascore.com/football/livescore', {
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'networkidle2', // Wait for page to fully load
         timeout: 30000,
       });
+
+      // Extract all live matches from the page DOM
+      logger.info('📊 Extracting live match details from page...');
+      await this.extractLiveMatches();
 
       this.isRunning = true;
       logger.info('✅ SofaScore collector started!');
@@ -598,6 +602,83 @@ export class SofaScoreCollector extends EventEmitter {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });
+  }
+
+  async extractLiveMatches() {
+    try {
+      // Fetch live matches from the API (the endpoint that shows 200 in network tab)
+      const todayDate = new Date().toISOString().split('T')[0]; // Format: 2025-11-16
+      
+      const matches = await this.page.evaluate(async (date) => {
+        try {
+          // Use the same endpoint that works in the network tab
+          const response = await fetch(`https://api.sofascore.com/api/v1/sport/football/scheduled-events/${date}`, {
+            headers: {
+              'Accept': 'application/json',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Origin': 'https://www.sofascore.com',
+              'Referer': 'https://www.sofascore.com/',
+            }
+          });
+
+          if (!response.ok) {
+            console.log(`API fetch failed: ${response.status}`);
+            return [];
+          }
+
+          const data = await response.json();
+          console.log(`✅ Fetched ${data.events?.length || 0} matches from API`);
+          
+          const liveMatches = [];
+          
+          // Filter for live matches only (status.type === 'inprogress')
+          if (data.events && Array.isArray(data.events)) {
+            for (const event of data.events) {
+              if (event.status?.type === 'inprogress') {
+                liveMatches.push({
+                  matchId: event.id.toString(),
+                  homeTeam: event.homeTeam?.name || 'Unknown',
+                  awayTeam: event.awayTeam?.name || 'Unknown',
+                  homeTeamShort: event.homeTeam?.shortName || event.homeTeam?.name || 'Unknown',
+                  awayTeamShort: event.awayTeam?.shortName || event.awayTeam?.name || 'Unknown',
+                  tournament: event.tournament?.name || '',
+                  homeScore: event.homeScore?.current || 0,
+                  awayScore: event.awayScore?.current || 0,
+                });
+              }
+            }
+          }
+          
+          return liveMatches;
+        } catch (error) {
+          console.error('API fetch error:', error.message);
+          return [];
+        }
+      }, todayDate);
+
+      // Store the extracted live matches
+      for (const match of matches) {
+        if (!this.matchInfo.has(match.matchId)) {
+          this.matchInfo.set(match.matchId, {
+            homeTeam: match.homeTeam,
+            awayTeam: match.awayTeam,
+            tournament: match.tournament,
+            homeTeamShort: match.homeTeamShort,
+            awayTeamShort: match.awayTeamShort,
+          });
+          logger.info({ 
+            matchId: match.matchId, 
+            teams: `${match.homeTeam} vs ${match.awayTeam}`,
+            score: `${match.homeScore}-${match.awayScore}`,
+            tournament: match.tournament
+          }, '✅ Live match found');
+        }
+      }
+
+      logger.info({ count: matches.length }, `📊 Found ${matches.length} LIVE matches`);
+    } catch (error) {
+      logger.error({ error: error.message }, 'Failed to extract live matches from API');
+    }
   }
 
   async autoSelectLiveMatch() {
