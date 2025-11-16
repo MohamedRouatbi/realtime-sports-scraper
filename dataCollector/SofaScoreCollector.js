@@ -199,7 +199,7 @@ export class SofaScoreCollector extends EventEmitter {
       if (previousScore) {
         // Check for goal
         if (currentScore.home > previousScore.home) {
-          event.type = 'goal';
+          event.eventType = 'goal';
           event.team = 'home';
           event.teamName = matchDetails.homeTeam;
           event.score = `${currentScore.home}-${currentScore.away}`;
@@ -211,7 +211,7 @@ export class SofaScoreCollector extends EventEmitter {
           logger.info({ event }, '⚽ GOAL DETECTED!');
           this.emit('event', event);
         } else if (currentScore.away > previousScore.away) {
-          event.type = 'goal';
+          event.eventType = 'goal';
           event.team = 'away';
           event.teamName = matchDetails.awayTeam;
           event.score = `${currentScore.home}-${currentScore.away}`;
@@ -236,7 +236,7 @@ export class SofaScoreCollector extends EventEmitter {
       // SofaScore cardsCode format: "XY" where X=home cards, Y=away cards
       // 0=no card, 1=yellow, 2=red
       if (cardsCode.includes('1')) {
-        event.type = 'yellow_card';
+        event.eventType = 'yellow_card';
         event.team = cardsCode[0] === '1' ? 'home' : 'away';
         event.teamName = event.team === 'home' ? matchDetails.homeTeam : matchDetails.awayTeam;
         event.minute = this.extractMinute(data);
@@ -249,7 +249,7 @@ export class SofaScoreCollector extends EventEmitter {
       }
 
       if (cardsCode.includes('2')) {
-        event.type = 'red_card';
+        event.eventType = 'red_card';
         event.team = cardsCode[0] === '2' ? 'home' : 'away';
         event.teamName = event.team === 'home' ? matchDetails.homeTeam : matchDetails.awayTeam;
         event.minute = this.extractMinute(data);
@@ -655,7 +655,7 @@ export class SofaScoreCollector extends EventEmitter {
                 }
 
                 liveMatches.push({
-                  matchId: Number(event.id),
+                  matchId: event.id.toString(),
                   homeTeam: event.homeTeam?.name || 'Unknown',
                   awayTeam: event.awayTeam?.name || 'Unknown',
                   homeTeamShort: event.homeTeam?.shortName || event.homeTeam?.name || 'Unknown',
