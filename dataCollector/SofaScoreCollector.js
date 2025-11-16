@@ -34,6 +34,7 @@ export class SofaScoreCollector extends EventEmitter {
     this.maxReconnectAttempts = 5;
     this.previousScores = new Map(); // Track scores to detect changes
     this.matchInfo = new Map(); // Cache match details (teams, players, etc.)
+    this.refreshInterval = null; // Interval for refreshing live matches
   }
 
   async start() {
@@ -89,6 +90,12 @@ export class SofaScoreCollector extends EventEmitter {
       // Extract all live matches from the page DOM
       logger.info('📊 Extracting live match details from page...');
       await this.extractLiveMatches();
+
+      // Refresh live matches every 5 minutes to catch newly started matches
+      this.refreshInterval = setInterval(async () => {
+        logger.info('🔄 Refreshing live matches...');
+        await this.extractLiveMatches();
+      }, 5 * 60 * 1000); // 5 minutes
 
       this.isRunning = true;
       logger.info('✅ SofaScore collector started!');
@@ -171,12 +178,23 @@ export class SofaScoreCollector extends EventEmitter {
       });
     }
 
-    // Fetch match details if not cached (but skip if already failed with 403)
+    // Fetch match details if not cached
     if (!this.matchInfo.has(matchId)) {
-      await this.fetchMatchDetails(matchId);
+      logger.info({ matchId }, '🔍 Match not in cache, attempting immediate fetch from API...');
+      
+      // Try to fetch this specific match from API immediately
+      await this.fetchMatchDetailsFromAPI(matchId);
     }
 
     const matchDetails = this.matchInfo.get(matchId) || {};
+    
+    if (!matchDetails.homeTeam || matchDetails.homeTeam === 'Unknown') {
+      logger.warn({ 
+        matchId, 
+        cachedMatches: Array.from(this.matchInfo.keys()).slice(0, 10),
+        totalCached: this.matchInfo.size 
+      }, '⚠️ Match details unknown - not in cache');
+    }
 
     const event = {
       timestamp: new Date(timestamp * 1000).toISOString(),
@@ -296,76 +314,64 @@ export class SofaScoreCollector extends EventEmitter {
     return null;
   }
 
-  async fetchMatchDetails(matchId) {
+  async fetchMatchDetailsFromAPI(matchId) {
     try {
-      logger.debug({ matchId }, 'Fetching match details');
-
-      // Try direct fetch from Node.js with proper headers (bypasses 403 issue)
-      const https = await import('https');
-      const matchData = await new Promise((resolve, reject) => {
-        const options = {
-          hostname: 'api.sofascore.com',
-          path: `/api/v1/event/${matchId}`,
-          method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Origin': 'https://www.sofascore.com',
-            'Referer': 'https://www.sofascore.com/',
-            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
-          }
-        };
-
-        https.default.get(options, (res) => {
-          let data = '';
-          res.on('data', (chunk) => data += chunk);
-          res.on('end', () => {
-            if (res.statusCode === 200) {
-              try {
-                resolve(JSON.parse(data));
-              } catch (e) {
-                logger.warn({ matchId, error: e.message }, 'Failed to parse API response');
-                resolve(null);
-              }
-            } else {
-              logger.warn({ matchId, status: res.statusCode }, 'API returned non-200 status');
-              resolve(null);
+      // Use browser context to fetch match details (inherits cookies/session)
+      const matchData = await this.page.evaluate(async (id) => {
+        try {
+          const response = await fetch(`https://api.sofascore.com/api/v1/event/${id}`, {
+            headers: {
+              'Accept': 'application/json',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Origin': 'https://www.sofascore.com',
+              'Referer': 'https://www.sofascore.com/',
             }
           });
-        }).on('error', (e) => {
-          logger.warn({ matchId, error: e.message }, 'API request failed');
-          resolve(null);
-        });
-      });
 
-      if (!matchData || !matchData.event) {
-        logger.warn({ matchId }, 'Failed to fetch match details - no data returned');
+          if (!response.ok) {
+            console.log(`Match API failed: ${response.status}`);
+            return null;
+          }
+
+          const data = await response.json();
+          return data.event || null;
+        } catch (error) {
+          console.error('Match fetch error:', error.message);
+          return null;
+        }
+      }, matchId);
+
+      if (!matchData) {
+        logger.warn({ matchId }, 'Failed to fetch match details from API');
         this.setFallbackMatchInfo(matchId);
         return;
       }
 
-      const event = matchData.event;
-
       const matchDetails = {
-        homeTeam: event.homeTeam?.name || 'Unknown',
-        awayTeam: event.awayTeam?.name || 'Unknown',
-        tournament: event.tournament?.name || event.tournament?.uniqueTournament?.name || '',
-        homeTeamShort: event.homeTeam?.shortName || event.homeTeam?.name,
-        awayTeamShort: event.awayTeam?.shortName || event.awayTeam?.name,
+        homeTeam: matchData.homeTeam?.name || 'Unknown',
+        awayTeam: matchData.awayTeam?.name || 'Unknown',
+        tournament: matchData.tournament?.name || matchData.tournament?.uniqueTournament?.name || '',
+        homeTeamShort: matchData.homeTeam?.shortName || matchData.homeTeam?.name,
+        awayTeamShort: matchData.awayTeam?.shortName || matchData.awayTeam?.name,
+        homeTeamId: matchData.homeTeam?.id,
+        awayTeamId: matchData.awayTeam?.id,
+        tournamentId: matchData.tournament?.id,
       };
 
       this.matchInfo.set(matchId, matchDetails);
       logger.info(
         { matchId, teams: `${matchDetails.homeTeam} vs ${matchDetails.awayTeam}` },
-        '✅ Match details fetched'
+        '✅ Match details fetched from API'
       );
     } catch (error) {
       logger.error({ error: error.message, matchId }, 'Error fetching match details');
       this.setFallbackMatchInfo(matchId);
     }
+  }
+
+  async fetchMatchDetails(matchId) {
+    // Legacy method - now redirects to the browser-based fetch
+    return this.fetchMatchDetailsFromAPI(matchId);
   }
 
   setFallbackMatchInfo(matchId) {
@@ -573,6 +579,12 @@ export class SofaScoreCollector extends EventEmitter {
     logger.info('Stopping SofaScore collector...');
     this.isRunning = false;
 
+    // Clear refresh interval
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
+
     try {
       if (this.cdpSession) {
         await this.cdpSession.detach();
@@ -684,20 +696,22 @@ export class SofaScoreCollector extends EventEmitter {
 
       // Store the extracted live matches and fetch additional details (lineups, etc.)
       for (const match of matches) {
-        if (!this.matchInfo.has(match.matchId)) {
-          this.matchInfo.set(match.matchId, {
-            homeTeam: match.homeTeam,
-            awayTeam: match.awayTeam,
-            tournament: match.tournament,
-            homeTeamShort: match.homeTeamShort,
-            awayTeamShort: match.awayTeamShort,
-            homeTeamId: match.homeTeamId,
-            awayTeamId: match.awayTeamId,
-            tournamentId: match.tournamentId,
-            currentMinute: match.currentMinute,
-            statusCode: match.statusCode,
-          });
-          
+        const isNew = !this.matchInfo.has(match.matchId);
+        
+        this.matchInfo.set(match.matchId, {
+          homeTeam: match.homeTeam,
+          awayTeam: match.awayTeam,
+          tournament: match.tournament,
+          homeTeamShort: match.homeTeamShort,
+          awayTeamShort: match.awayTeamShort,
+          homeTeamId: match.homeTeamId,
+          awayTeamId: match.awayTeamId,
+          tournamentId: match.tournamentId,
+          currentMinute: match.currentMinute,
+          statusCode: match.statusCode,
+        });
+        
+        if (isNew) {
           logger.info({ 
             matchId: match.matchId, 
             teams: `${match.homeTeam} vs ${match.awayTeam}`,
