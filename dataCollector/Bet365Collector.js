@@ -12,11 +12,15 @@ export class Bet365Collector extends BaseCollector {
     super(url, {
       ...options,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Origin': 'https://www.bet365.com',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0',
+        Origin: 'https://www.bet365.com',
+        'Accept-Language': 'en-GB,en;q=0.5',
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
         ...(options.headers || {}),
       },
+      protocol: 'zap-protocol-v1',
     });
   }
 
@@ -26,10 +30,11 @@ export class Bet365Collector extends BaseCollector {
   connect() {
     try {
       logger.info(`Connecting to Bet365: ${this.url}`);
-      
-      this.ws = new WebSocket(this.url, {
+
+      // Bet365 uses zap-protocol-v1
+      this.ws = new WebSocket(this.url, this.options.protocol, {
         headers: this.options.headers,
-        perMessageDeflate: false,
+        perMessageDeflate: true, // Bet365 uses permessage-deflate
         handshakeTimeout: 10000,
       });
 
@@ -59,14 +64,14 @@ export class Bet365Collector extends BaseCollector {
   parseMessage(data) {
     try {
       const raw = data.toString();
-      
+
       // Bet365 messages often start with special characters or identifiers
       // Try to parse as JSON first
       if (raw.startsWith('{') || raw.startsWith('[')) {
         const message = JSON.parse(raw);
         return this.normalizeEvent(message);
       }
-      
+
       // Handle custom Bet365 format (pipe-separated or other format)
       // This needs to be adapted based on actual message structure
       return this.parseCustomFormat(raw);
@@ -83,9 +88,9 @@ export class Bet365Collector extends BaseCollector {
     // Bet365 often uses formats like:
     // "OV|matchId|eventType|data"
     // We'll need to adjust this based on actual data
-    
+
     logger.debug('Raw Bet365 message:', raw.substring(0, 200));
-    
+
     // For now, return raw data for analysis
     return {
       source: 'bet365',

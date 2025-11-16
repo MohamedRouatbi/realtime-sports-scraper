@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
+    "start:puppeteer": "node src/index-puppeteer.js",
     "dev": "node --watch src/index.js",
     "test": "node examples/test-setup.js",
     "test:setup": "node examples/test-setup.js",
+    "test:puppeteer": "node examples/test-puppeteer.js",
     "lint": "eslint src/",
     "format": "prettier --write src/"
   },
@@ -28,7 +30,8 @@
     "node-telegram-bot-api": "^0.64.0",
     "dotenv": "^16.4.5",
     "pino": "^8.19.0",
-    "pino-pretty": "^10.3.1"
+    "pino-pretty": "^10.3.1",
+    "puppeteer": "^21.11.0"
   },
   "devDependencies": {
     "eslint": "^8.57.0",

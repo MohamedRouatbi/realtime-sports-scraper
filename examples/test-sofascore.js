@@ -19,10 +19,10 @@ ws.on('open', () => {
   console.log('═'.repeat(80));
 });
 
-ws.on('message', (data) => {
+ws.on('message', data => {
   try {
     const timestamp = new Date().toLocaleTimeString();
-    
+
     // Try to parse as JSON
     try {
       const parsed = JSON.parse(data.toString());
@@ -33,14 +33,14 @@ ws.on('message', (data) => {
       console.log(`\n[${timestamp}] 📦 RAW MESSAGE:`);
       console.log(data.toString());
     }
-    
+
     console.log('─'.repeat(80));
   } catch (error) {
     console.error('Error processing message:', error.message);
   }
 });
 
-ws.on('error', (error) => {
+ws.on('error', error => {
   console.error('\n❌ ERROR:', error.message);
 });
 
