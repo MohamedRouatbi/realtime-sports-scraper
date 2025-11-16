@@ -150,6 +150,11 @@ export class SofaScoreCollector extends EventEmitter {
     const matchId = data.id;
     if (!matchId) return;
 
+    // Log raw WebSocket data to see what's available
+    if (!this.matchInfo.has(matchId)) {
+      logger.debug({ matchId, sampleData: JSON.stringify(data).substring(0, 300) }, '📦 WebSocket data sample');
+    }
+
     // Check if WebSocket data already contains team names
     if (data.homeTeam && data.awayTeam && !this.matchInfo.has(matchId)) {
       logger.info({ matchId, teams: `${data.homeTeam.name} vs ${data.awayTeam.name}` }, '✅ Team data from WebSocket');
@@ -162,7 +167,7 @@ export class SofaScoreCollector extends EventEmitter {
       });
     }
 
-    // Fetch match details if not cached
+    // Fetch match details if not cached (but skip if already failed with 403)
     if (!this.matchInfo.has(matchId)) {
       await this.fetchMatchDetails(matchId);
     }
@@ -289,31 +294,48 @@ export class SofaScoreCollector extends EventEmitter {
 
   async fetchMatchDetails(matchId) {
     try {
-      logger.debug({ matchId }, 'Fetching match details from browser context');
+      logger.debug({ matchId }, 'Fetching match details');
 
-      // Check if page is available
-      if (!this.page) {
-        logger.warn({ matchId }, 'Page not available for API call');
-        this.setFallbackMatchInfo(matchId);
-        return;
-      }
-
-      // Use Puppeteer's page.evaluate to make the fetch from browser context (has cookies)
-      const matchData = await this.page.evaluate(async id => {
-        try {
-          const response = await fetch(`https://api.sofascore.com/api/v1/event/${id}`);
-          if (!response.ok) {
-            console.log(`API fetch failed: ${response.status} ${response.statusText}`);
-            return null;
+      // Try direct fetch from Node.js with proper headers (bypasses 403 issue)
+      const https = await import('https');
+      const matchData = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'api.sofascore.com',
+          path: `/api/v1/event/${matchId}`,
+          method: 'GET',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.sofascore.com',
+            'Referer': 'https://www.sofascore.com/',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
           }
-          const data = await response.json();
-          console.log(`✅ Fetched match ${id}: ${data.event?.homeTeam?.name} vs ${data.event?.awayTeam?.name}`);
-          return data;
-        } catch (error) {
-          console.log(`API fetch error: ${error.message}`);
-          return null;
-        }
-      }, matchId);
+        };
+
+        https.default.get(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => data += chunk);
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              try {
+                resolve(JSON.parse(data));
+              } catch (e) {
+                logger.warn({ matchId, error: e.message }, 'Failed to parse API response');
+                resolve(null);
+              }
+            } else {
+              logger.warn({ matchId, status: res.statusCode }, 'API returned non-200 status');
+              resolve(null);
+            }
+          });
+        }).on('error', (e) => {
+          logger.warn({ matchId, error: e.message }, 'API request failed');
+          resolve(null);
+        });
+      });
 
       if (!matchData || !matchData.event) {
         logger.warn({ matchId }, 'Failed to fetch match details - no data returned');
