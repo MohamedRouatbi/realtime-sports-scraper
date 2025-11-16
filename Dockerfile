@@ -1,5 +1,5 @@
-# Use Node.js 18 Alpine for smaller image size
-FROM node:18-alpine
+# Use official Puppeteer image (includes Chrome and all dependencies)
+FROM ghcr.io/puppeteer/puppeteer:21.11.0
 
 # Set working directory
 WORKDIR /app
@@ -8,16 +8,21 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
-# Copy source code
+# Copy application code
 COPY . .
 
-# Create logs directory
-RUN mkdir -p logs
+# Create directory for Puppeteer cache
+RUN mkdir -p /app/.cache
 
 # Set environment to production
 ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
-# Run the application
-CMD ["node", "src/index.js"]
+# Expose port for health checks
+EXPOSE 8080
+
+# Run the application with health check server
+CMD ["node", "src/server.js"]

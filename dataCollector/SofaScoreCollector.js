@@ -36,10 +36,23 @@ export class SofaScoreCollector extends EventEmitter {
     try {
       logger.info('🚀 Starting SofaScore collector...');
 
+      // Use headless mode in production (Fly.io), visible browser locally
+      const isProduction = process.env.NODE_ENV === 'production';
+      
       this.browser = await puppeteer.launch({
-        headless: false,
-        defaultViewport: null,
-        args: ['--start-maximized', '--no-sandbox', '--disable-setuid-sandbox'],
+        headless: isProduction ? 'new' : false,
+        defaultViewport: isProduction ? { width: 1920, height: 1080 } : null,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-extensions',
+          '--no-first-run',
+          '--no-zygote',
+          ...(isProduction ? [] : ['--start-maximized'])
+        ],
         protocolTimeout: 180000, // 3 minutes timeout
       });
 
