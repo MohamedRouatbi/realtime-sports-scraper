@@ -65,6 +65,14 @@ export class SofaScoreCollector extends EventEmitter {
 
       this.page = await this.browser.newPage();
 
+      // Log browser console messages for debugging
+      this.page.on('console', msg => {
+        const text = msg.text();
+        if (text.includes('Fetched match') || text.includes('API fetch')) {
+          logger.info({ browserLog: text }, '🌐 Browser console');
+        }
+      });
+
       // Setup CDP session for WebSocket interception
       this.cdpSession = await this.page.target().createCDPSession();
       await this.cdpSession.send('Network.enable');
@@ -78,9 +86,17 @@ export class SofaScoreCollector extends EventEmitter {
         timeout: 30000,
       });
 
+      // In production mode, automatically click on the first live match
+      if (isProduction) {
+        logger.info('🎯 Auto-selecting first live match in production mode...');
+        await this.autoSelectLiveMatch();
+      }
+
       this.isRunning = true;
       logger.info('✅ SofaScore collector started!');
-      logger.info('💡 Click on any LIVE match in the browser to start receiving events');
+      if (!isProduction) {
+        logger.info('💡 Click on any LIVE match in the browser to start receiving events');
+      }
 
       this.emit('started');
     } catch (error) {
@@ -114,6 +130,12 @@ export class SofaScoreCollector extends EventEmitter {
           if (lines.length >= 2) {
             try {
               const jsonData = JSON.parse(lines[1]);
+              // Log if this is a goal/card event to see the structure
+              if (jsonData['homeScore.current'] !== undefined || jsonData['awayScore.current'] !== undefined || 
+                  jsonData.homeRedCards !== undefined || jsonData.awayRedCards !== undefined ||
+                  jsonData.homeYellowCards !== undefined || jsonData.awayYellowCards !== undefined) {
+                logger.debug({ sample: JSON.stringify(jsonData).substring(0, 500) }, '📦 WebSocket event data');
+              }
               this.handleMatchUpdate(jsonData, timestamp);
             } catch (parseError) {
               logger.debug({ error: parseError.message }, 'Failed to parse JSON from message');
@@ -135,6 +157,18 @@ export class SofaScoreCollector extends EventEmitter {
   async handleMatchUpdate(data, timestamp) {
     const matchId = data.id;
     if (!matchId) return;
+
+    // Check if WebSocket data already contains team names
+    if (data.homeTeam && data.awayTeam && !this.matchInfo.has(matchId)) {
+      logger.info({ matchId, teams: `${data.homeTeam.name} vs ${data.awayTeam.name}` }, '✅ Team data from WebSocket');
+      this.matchInfo.set(matchId, {
+        homeTeam: data.homeTeam.name,
+        awayTeam: data.awayTeam.name,
+        tournament: data.tournament?.name || data.tournament?.uniqueTournament?.name || '',
+        homeTeamShort: data.homeTeam.shortName || data.homeTeam.name,
+        awayTeamShort: data.awayTeam.shortName || data.awayTeam.name,
+      });
+    }
 
     // Fetch match details if not cached
     if (!this.matchInfo.has(matchId)) {
@@ -265,23 +299,33 @@ export class SofaScoreCollector extends EventEmitter {
     try {
       logger.debug({ matchId }, 'Fetching match details from browser context');
 
+      // Check if page is available
+      if (!this.page) {
+        logger.warn({ matchId }, 'Page not available for API call');
+        this.setFallbackMatchInfo(matchId);
+        return;
+      }
+
       // Use Puppeteer's page.evaluate to make the fetch from browser context (has cookies)
       const matchData = await this.page.evaluate(async id => {
-        const response = await fetch(`https://api.sofascore.com/api/v1/event/${id}`);
-        if (!response.ok) return null;
-        return response.json();
+        try {
+          const response = await fetch(`https://api.sofascore.com/api/v1/event/${id}`);
+          if (!response.ok) {
+            console.log(`API fetch failed: ${response.status} ${response.statusText}`);
+            return null;
+          }
+          const data = await response.json();
+          console.log(`✅ Fetched match ${id}: ${data.event?.homeTeam?.name} vs ${data.event?.awayTeam?.name}`);
+          return data;
+        } catch (error) {
+          console.log(`API fetch error: ${error.message}`);
+          return null;
+        }
       }, matchId);
 
       if (!matchData || !matchData.event) {
-        logger.warn({ matchId }, 'Failed to fetch match details');
-        // Set fallback
-        this.matchInfo.set(matchId, {
-          homeTeam: 'Unknown',
-          awayTeam: 'Unknown',
-          tournament: '',
-          homeTeamShort: 'Unknown',
-          awayTeamShort: 'Unknown',
-        });
+        logger.warn({ matchId }, 'Failed to fetch match details - no data returned');
+        this.setFallbackMatchInfo(matchId);
         return;
       }
 
@@ -302,15 +346,18 @@ export class SofaScoreCollector extends EventEmitter {
       );
     } catch (error) {
       logger.error({ error: error.message, matchId }, 'Error fetching match details');
-      // Set fallback
-      this.matchInfo.set(matchId, {
-        homeTeam: 'Unknown',
-        awayTeam: 'Unknown',
-        tournament: '',
-        homeTeamShort: 'Unknown',
-        awayTeamShort: 'Unknown',
-      });
+      this.setFallbackMatchInfo(matchId);
     }
+  }
+
+  setFallbackMatchInfo(matchId) {
+    this.matchInfo.set(matchId, {
+      homeTeam: 'Unknown',
+      awayTeam: 'Unknown',
+      tournament: '',
+      homeTeamShort: 'Unknown',
+      awayTeamShort: 'Unknown',
+    });
   }
 
   async enrichGoalWithPlayer(event) {
@@ -537,5 +584,45 @@ export class SofaScoreCollector extends EventEmitter {
       waitUntil: 'domcontentloaded',
       timeout: 15000,
     });
+  }
+
+  async autoSelectLiveMatch() {
+    try {
+      // Wait for live matches to load
+      await this.page.waitForTimeout(3000);
+
+      // Find and click on the first live match link
+      const matchUrl = await this.page.evaluate(() => {
+        // Look for live match links (they contain /match/ in the URL)
+        const links = Array.from(document.querySelectorAll('a[href*="/match/"]'));
+        
+        // Filter for links that look like match detail pages
+        const matchLinks = links.filter(link => {
+          const href = link.getAttribute('href');
+          return href && href.includes('/match/') && !href.includes('/standings') && !href.includes('/h2h');
+        });
+
+        if (matchLinks.length > 0) {
+          const href = matchLinks[0].getAttribute('href');
+          // Return full URL
+          return href.startsWith('http') ? href : `https://www.sofascore.com${href}`;
+        }
+        return null;
+      });
+
+      if (matchUrl) {
+        logger.info({ matchUrl }, '✅ Found live match, navigating...');
+        await this.page.goto(matchUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 15000,
+        });
+        logger.info('✅ Successfully navigated to live match');
+      } else {
+        logger.warn('⚠️ No live matches found, staying on livescore page');
+      }
+    } catch (error) {
+      logger.error({ error: error.message }, 'Failed to auto-select live match');
+      // Don't throw - just continue with livescore page
+    }
   }
 }
