@@ -3,9 +3,13 @@
  * Uses Puppeteer to connect to SofaScore and capture real-time match events
  */
 
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import EventEmitter from 'events';
 import pino from 'pino';
+
+// Use stealth plugin to avoid detection
+puppeteer.use(StealthPlugin());
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -51,9 +55,12 @@ export class SofaScoreCollector extends EventEmitter {
           '--disable-extensions',
           '--no-first-run',
           '--no-zygote',
-          ...(isProduction ? [] : ['--start-maximized']),
+          '--disable-blink-features=AutomationControlled', // Hide automation
+          '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          ...(isProduction ? [] : ['--start-maximized'])
         ],
         protocolTimeout: 180000, // 3 minutes timeout
+        ignoreHTTPSErrors: true,
       });
 
       this.page = await this.browser.newPage();
