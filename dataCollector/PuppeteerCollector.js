@@ -16,8 +16,13 @@ export class PuppeteerCollector extends EventEmitter {
     this.page = null;
     this.wsConnections = new Map();
     this.isRunning = false;
+    
+    // Determine if we should use headful mode with Xvfb
+    const useHeadful = process.env.DISPLAY || false;
+    const isProduction = process.env.NODE_ENV === 'production';
+    
     this.options = {
-      headless: options.headless !== false, // Default: true (hidden browser)
+      headless: useHeadful ? false : (options.headless !== false), // Use headful if DISPLAY is set
       slowMo: options.slowMo || 0,
       ...options,
     };
@@ -30,21 +35,43 @@ export class PuppeteerCollector extends EventEmitter {
     try {
       logger.info('🚀 Starting Puppeteer browser...');
 
+      // Build launch arguments
+      const launchArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-web-security',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=IsolateOrigins,site-per-process',
+      ];
+
+      // Add Xvfb display if available
+      if (process.env.DISPLAY) {
+        launchArgs.push(`--display=${process.env.DISPLAY}`);
+      }
+
+      // Add proxy if configured
+      if (process.env.PROXY_SERVER) {
+        launchArgs.push(`--proxy-server=${process.env.PROXY_SERVER}`);
+      }
+
       // Launch browser with less automation detection
       this.browser = await puppeteer.launch({
         headless: this.options.headless,
         slowMo: this.options.slowMo,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-web-security',
-          '--disable-blink-features=AutomationControlled',
-          '--disable-features=IsolateOrigins,site-per-process',
-        ],
+        args: launchArgs,
       });
 
       this.page = await this.browser.newPage();
+
+      // Set up proxy authentication if configured
+      if (process.env.PROXY_USERNAME && process.env.PROXY_PASSWORD) {
+        await this.page.authenticate({
+          username: process.env.PROXY_USERNAME,
+          password: process.env.PROXY_PASSWORD,
+        });
+        logger.info('🔐 Proxy authentication configured');
+      }
 
       // Set viewport
       await this.page.setViewport({ width: 1920, height: 1080 });
@@ -54,20 +81,38 @@ export class PuppeteerCollector extends EventEmitter {
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       );
 
-      // Hide webdriver property to avoid detection
+      // Enhanced anti-detection measures
       await this.page.evaluateOnNewDocument(() => {
+        // Remove webdriver property
         Object.defineProperty(navigator, 'webdriver', {
-          get: () => false,
+          get: () => undefined,
         });
-        // Add chrome object
-        window.chrome = { runtime: {} };
-        // Override permissions
+
+        // Mock plugins
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [1, 2, 3, 4, 5],
+        });
+
+        // Mock languages
+        Object.defineProperty(navigator, 'languages', {
+          get: () => ['en-US', 'en'],
+        });
+
+        // Mock permissions
         const originalQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = parameters =>
-          parameters.name === 'notifications'
-            ? Promise.resolve({ state: Notification.permission })
-            : originalQuery(parameters);
+        window.navigator.permissions.query = (parameters) => (
+          parameters.name === 'notifications' ?
+            Promise.resolve({ state: Notification.permission }) :
+            originalQuery(parameters)
+        );
+
+        // Mock chrome object
+        window.chrome = {
+          runtime: {},
+        };
       });
+
+      logger.info(`🌐 Browser launched | Headless: ${this.options.headless ? 'Yes' : 'No (Xvfb)'} | Proxy: ${process.env.PROXY_SERVER ? 'Yes' : 'No'}`);
 
       // Intercept WebSocket connections
       await this.setupWebSocketInterception();
