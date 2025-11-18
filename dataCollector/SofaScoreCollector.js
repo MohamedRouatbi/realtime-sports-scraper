@@ -43,28 +43,85 @@ export class SofaScoreCollector extends EventEmitter {
 
       // Use headless mode in production (Fly.io), visible browser locally
       const isProduction = process.env.NODE_ENV === 'production';
+      
+      // On VPS, use headful mode with Xvfb to avoid bot detection
+      const useHeadful = isProduction && process.env.USE_XVFB === 'true';
 
       this.browser = await puppeteer.launch({
-        headless: isProduction ? 'new' : false,
-        defaultViewport: isProduction ? { width: 1920, height: 1080 } : null,
+        headless: useHeadful ? false : (isProduction ? 'new' : false),
+        defaultViewport: { width: 1920, height: 1080 },
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--disable-software-rasterizer',
-          '--disable-extensions',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-blink-features=AutomationControlled', // Hide automation
-          '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          '--disable-blink-features=AutomationControlled',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          // Enable GPU and graphics features (anti-bot detection)
+          ...(useHeadful ? [
+            '--enable-webgl',
+            '--enable-gpu',
+            '--enable-gpu-rasterization',
+            '--enable-zero-copy',
+            '--ignore-gpu-blocklist',
+            '--enable-accelerated-2d-canvas',
+            '--disable-software-rasterizer',
+          ] : [
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+          ]),
+          // Use proxy if configured
+          ...(process.env.PROXY_SERVER ? [`--proxy-server=${process.env.PROXY_SERVER}`] : []),
           ...(isProduction ? [] : ['--start-maximized'])
         ],
-        protocolTimeout: 180000, // 3 minutes timeout
+        protocolTimeout: 180000,
         ignoreHTTPSErrors: true,
+        executablePath: process.env.CHROME_BIN || undefined,
       });
 
       this.page = await this.browser.newPage();
+
+      // Set up proxy authentication if configured
+      if (process.env.PROXY_USERNAME && process.env.PROXY_PASSWORD) {
+        await this.page.authenticate({
+          username: process.env.PROXY_USERNAME,
+          password: process.env.PROXY_PASSWORD,
+        });
+        logger.info('🔐 Proxy authentication configured');
+      }
+
+      // Override navigator properties to hide automation
+      await this.page.evaluateOnNewDocument(() => {
+        // Remove webdriver property
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
+        });
+
+        // Mock plugins
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [1, 2, 3, 4, 5],
+        });
+
+        // Mock languages
+        Object.defineProperty(navigator, 'languages', {
+          get: () => ['en-US', 'en'],
+        });
+
+        // Mock permissions
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) => (
+          parameters.name === 'notifications' ?
+            Promise.resolve({ state: Notification.permission }) :
+            originalQuery(parameters)
+        );
+
+        // Mock chrome object
+        window.chrome = {
+          runtime: {},
+        };
+      });
+
+      logger.info(`🌐 Browser launched | Headless: ${this.browser._process ? 'No (Xvfb)' : 'Yes'} | Proxy: ${process.env.PROXY_SERVER ? 'Yes' : 'No'}`);
 
       // Log browser console messages for debugging
       this.page.on('console', msg => {
